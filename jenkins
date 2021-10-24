@@ -1,0 +1,50 @@
+node {
+    def mvnHome
+    def buildNumber=BUILD_NUMBER
+    def data=dataPath
+  	def schema=schemaPath 
+    def tag=tag
+    def outputTableName=outputTableName
+
+    stage('Preparation') { // for display purposes
+        git branch:'main',credentialsId: '5906d0e3-9816-404e-9a71-4769555aac72', url: 'https://github.com/param-devops/hdfs-app.git'
+        mvnHome = tool 'maven-latest'
+        
+
+    }
+    
+    stage('Build') {
+        // Run the maven build
+        withEnv(["MVN_HOME=$mvnHome"]) {
+            if (isUnix()) {
+                sh '"$MVN_HOME/bin/mvn"  clean package'
+            } else {
+                bat(/"%MVN_HOME%\bin\mvn"  clean package/)
+            }
+        }
+    }
+     
+        
+    stage("ExecuteSonarQubeReport"){
+        sh "${mavenHome}/bin/mvn sonar:sonar"
+    }
+
+    stage('build-docker-image') {
+        sh "docker build -t paramveer1974/hdfs-app:${buildNumber} ."
+    }
+
+    stage('upload-docker-image-after-building') {
+        withCredentials([string(credentialsId: 'docker_password', variable: 'docker_password')]) {
+        sh "docker login -u paramveer1974 -p ${docker_password}"
+        sh "docker push paramveer1974/hdfs-app:${buildNumber}"
+    }}
+
+    stage("Replace build number in compose file"){												
+       sh "sed -i 's/BUILD_NUMBER/${buildNumber}/g'  ./deployment.yaml"											
+    }
+
+    stage('container-launch') {
+    sh "kubectl apply -f  ./deployment.yaml"
+        #deployment through kubernetes yaml file
+    }
+}
